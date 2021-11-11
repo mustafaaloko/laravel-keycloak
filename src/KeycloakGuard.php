@@ -269,6 +269,20 @@ class KeycloakGuard implements Guard
     }
 
     /**
+     * Retrieves the current stored token.
+     *
+     * @return \League\OAuth2\Client\Token\AccessToken|null
+     */
+    public function token(): ?AccessToken
+    {
+        if ($session = $this->retrieveSession()) {
+            return $this->keycloak->unserializeToken($session['token']);
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve a user from the database using the passed token.
      *
      * @param \Lcobucci\JWT\UnencryptedToken $token

@@ -14,7 +14,6 @@ use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Lcobucci\JWT\Token\DataSet;
 use Lcobucci\JWT\UnencryptedToken;
 use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
@@ -394,6 +393,31 @@ class KeycloakGuardTest extends TestCase
         $session->shouldReceive('get')->once()->andReturn(['id' => '10']);
 
         $this->assertNull($guard->user());
+    }
+
+    public function testItCanReturnTheActiveTokenStoredInSession()
+    {
+        [$keycloak, $provider, $session] = $this->getMocks();
+        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
+        $accessToken = $this->dummyAccessToken();
+        $session->shouldReceive('get')->with($guard->getName())->andReturn(
+            ['id' => 10, 'token' => $accessToken->jsonSerialize()]
+        );
+        $keycloak->shouldReceive('unserializeToken')->with($accessToken->jsonSerialize())->andReturn($accessToken);
+
+        $returnedToken = $guard->token();
+        $this->assertInstanceOf(AccessToken::class, $returnedToken);
+        $this->assertEquals($accessToken->jsonSerialize(), $returnedToken->jsonSerialize());
+    }
+
+    public function testTokenMethodReturnsNullIfSessionIsEmpty()
+    {
+        [$keycloak, $provider, $session] = $this->getMocks();
+        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
+        $session->shouldReceive('get')->with($guard->getName())->andReturn(null);
+        $keycloak->shouldNotReceive('unserializeToken');
+
+        $this->assertNull($guard->token());
     }
 
     /**

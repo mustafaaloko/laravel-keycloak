@@ -6,7 +6,6 @@ use Illuminate\Support\ServiceProvider;
 use Lcobucci\JWT\Configuration;
 use Lcobucci\JWT\Signer\Key\InMemory;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
-use Lcobucci\JWT\Validation\Constraint\SignedWith;
 
 class KeycloakServiceProvider extends ServiceProvider
 {
