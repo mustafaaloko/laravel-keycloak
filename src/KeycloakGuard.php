@@ -351,6 +351,7 @@ class KeycloakGuard implements Guard
      * Validate a user's credentials.
      *
      * @param  array  $credentials
+     *
      * @return bool
      */
     public function validate(array $credentials = []): bool
