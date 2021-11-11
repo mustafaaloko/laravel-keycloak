@@ -343,13 +343,12 @@ class KeycloakGuard implements Guard
      */
     public function logout(array $options = []): RedirectResponse
     {
-        $logoutUrl = $this->keycloak->getLogoutUrl($options);
-
         $this->session->remove($this->getName());
-
         $this->user = null;
 
-        return new RedirectResponse($logoutUrl);
+        return new RedirectResponse(
+            $this->keycloak->getLogoutUrl($options)
+        );
     }
 
     /**
