@@ -61,6 +61,11 @@ class KeycloakGuard implements Guard
      */
     protected $userCreateCallback = null;
 
+    /**
+     * The calculated authorization URL.
+     *
+     * @var string|null
+     */
     protected ?string $authUrl = null;
 
     /**
