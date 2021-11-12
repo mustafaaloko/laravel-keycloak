@@ -26,12 +26,12 @@ class KeycloakServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/config.php', 'keycloak');
+        $this->mergeConfigFrom(__DIR__.'/../config/keycloak.php', 'keycloak');
 
         $this->app['auth']->extend('keycloak', function ($app, $name, array $config) {
             return new KeycloakGuard(
                 $name,
-                new KeycloakManager(
+                new KeycloakProvider(
                     $this->config(),
                     $this->getJwtConfiguration()
                 ),

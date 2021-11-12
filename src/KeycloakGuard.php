@@ -36,9 +36,9 @@ class KeycloakGuard implements Guard
     /**
      * The base Keycloak instance.
      *
-     * @var \Aloko\Keycloak\KeycloakManager
+     * @var \Aloko\Keycloak\KeycloakProvider
      */
-    protected KeycloakManager $keycloak;
+    protected KeycloakProvider $keycloak;
 
     /**
      * The session instance used by guard.
@@ -79,14 +79,14 @@ class KeycloakGuard implements Guard
      * Creates a new Keycloak Guard instance.
      *
      * @param                                         $name
-     * @param \Aloko\Keycloak\KeycloakManager         $keycloak
+     * @param \Aloko\Keycloak\KeycloakProvider        $keycloak
      * @param \Illuminate\Contracts\Auth\UserProvider $provider
      * @param \Illuminate\Contracts\Session\Session   $session
      * @param \Illuminate\Http\Request                $request
      *
      * @return void
      */
-    public function __construct($name, KeycloakManager $keycloak, UserProvider $provider, Session $session, Request $request)
+    public function __construct($name, KeycloakProvider $keycloak, UserProvider $provider, Session $session, Request $request)
     {
         $this->name = $name;
         $this->keycloak = $keycloak;
@@ -156,7 +156,9 @@ class KeycloakGuard implements Guard
      */
     public function prepare(array $options = []): self
     {
-        $this->authUrl = $this->keycloak->getAuthorizationUrl($options);
+        $this->authUrl = $this->keycloak->getAuthorizationUrl(
+            array_merge(['scope' => ['openid', 'profile', 'email']], $options) // TODO: Bring this to Provider class
+        );
 
         $this->session->put('oauth2state', $this->keycloak->getState());
         $this->session->save();

@@ -6,7 +6,7 @@ use Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException;
 use Aloko\Keycloak\Exceptions\RelatedUserNotFoundException;
 use Aloko\Keycloak\Exceptions\StateMismatchException;
 use Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailed;
-use Aloko\Keycloak\KeycloakManager;
+use Aloko\Keycloak\KeycloakProvider;
 use Aloko\Keycloak\KeycloakGuard;
 use Carbon\Carbon;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -30,7 +30,9 @@ class KeycloakGuardTest extends TestCase
     {
         [$keycloak, $provider, $session] = $this->getMocks();
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
-        $keycloak->shouldReceive('getAuthorizationUrl')->once()->andReturn('https://foo.com');
+        $keycloak->shouldReceive('getAuthorizationUrl')->once()->with(
+            ['scope' => ['openid', 'profile', 'email']]
+        )->andReturn('https://foo.com');
         $keycloak->shouldReceive('getState')->andReturn('biz')->once();
         $session->shouldReceive('put')->with('oauth2state', 'biz')->once();
         $session->shouldReceive('save')->once();
@@ -41,12 +43,31 @@ class KeycloakGuardTest extends TestCase
         $this->assertEquals('https://foo.com', $redirect->getTargetUrl());
     }
 
+    public function testOptionsCanBeOverriddenWhileAuthAttempt()
+    {
+        [$keycloak, $provider, $session] = $this->getMocks();
+        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
+        $keycloak->shouldReceive('getAuthorizationUrl')->once()->with(
+            ['scope' => ['openid', 'profile', 'email'], 'redirect_uri' => 'bar']
+        )->andReturn('https://foo.com');
+        $keycloak->shouldReceive('getState')->andReturn('biz')->once();
+        $session->shouldReceive('put')->with('oauth2state', 'biz')->once();
+        $session->shouldReceive('save')->once();
+
+        $redirect = $guard->attempt(['redirect_uri' => 'bar']);
+
+        $this->assertInstanceOf(RedirectResponse::class, $redirect);
+        $this->assertEquals('https://foo.com', $redirect->getTargetUrl());
+    }
+
     public function testCallingPrepareSetsSessionProperlyAndReturnsSelf()
     {
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
-        $keycloak->shouldReceive('getAuthorizationUrl')->once()->andReturn('https://foo.com');
+        $keycloak->shouldReceive('getAuthorizationUrl')->once()->with(
+            ['scope' => ['openid', 'profile', 'email']]
+        )->andReturn('https://foo.com');
         $keycloak->shouldReceive('getState')->andReturn('biz')->once();
 
         $res = $guard->prepare();
@@ -60,7 +81,9 @@ class KeycloakGuardTest extends TestCase
     {
         [$keycloak, $provider, $session] = $this->getMocks();
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
-        $keycloak->shouldReceive('getAuthorizationUrl')->once()->andReturn('https://foo.com');
+        $keycloak->shouldReceive('getAuthorizationUrl')->once()->with(
+            ['scope' => ['openid', 'profile', 'email']]
+        )->andReturn('https://foo.com');
         $keycloak->shouldReceive('getState')->andReturn('biz')->once();
         $session->makePartial()->shouldReceive('put')->with('oauth2state', 'biz')->once();
         $session->shouldReceive('save')->once();
@@ -434,7 +457,7 @@ class KeycloakGuardTest extends TestCase
         $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
 
-        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
+        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakProvider::class), $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
         $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
@@ -463,7 +486,7 @@ class KeycloakGuardTest extends TestCase
         $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
 
-        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
+        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakProvider::class), $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
         $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
@@ -486,7 +509,7 @@ class KeycloakGuardTest extends TestCase
     protected function getMocks(): array
     {
         return [
-            m::mock(KeycloakManager::class),
+            m::mock(KeycloakProvider::class),
             m::mock(UserProvider::class),
             m::mock(Session::class)
         ];
