@@ -466,5 +466,5 @@ class KeycloakGuard implements Guard
         return $this->provider->retrieveByCredentials([
             'sub' => $token->claims()->get('sub')
         ]);
-}
+    }
 }
