@@ -57,9 +57,16 @@ class KeycloakGuard implements Guard
     /**
      * Callback to create users if not found in the system.
      *
-     * @var callable
+     * @var callable|null
      */
-    protected $userCreateCallback = null;
+    protected $userNotFoundCallback = null;
+
+    /**
+     * User resolver by token.
+     *
+     * @var callable|null
+     */
+    protected $userResolverByToken = null;
 
     /**
      * The calculated authorization URL.
@@ -194,9 +201,21 @@ class KeycloakGuard implements Guard
      *
      * @return void
      */
-    public function userCreateResolver(callable $cb): void
+    public function userNotFoundHandler(callable $cb): void
     {
-        $this->userCreateCallback = $cb;
+        $this->userNotFoundCallback = $cb;
+    }
+
+    /**
+     * Register a callback to return a user instance by provided token.
+     *
+     * @param callable $cb
+     *
+     * @return void
+     */
+    public function resolveUserByToken(callable $cb): void
+    {
+        $this->userResolverByToken = $cb;
     }
 
     /**
@@ -298,20 +317,20 @@ class KeycloakGuard implements Guard
      */
     protected function resolveUser(UnencryptedToken $token, bool $upsert = true): ?Authenticatable
     {
-        $user = $this->provider->retrieveByCredentials([
-            'sub' => $sub = $token->claims()->get('sub')
-        ]);
+        $user = $this->retrieveUserByToken($token);
 
         if (! $upsert) {
             return $user;
         }
 
-        if (is_null($user) && is_callable($this->userCreateCallback)) {
+        if (is_null($user)) {
             $user = $this->resolveUserFromCallback($token);
         }
 
         if (is_null($user)) {
-            throw new RelatedUserNotFoundException("User with ID #$sub not found in local database");
+            throw new RelatedUserNotFoundException(
+                "User with 'sub' claim #{$token->claims()->get('sub')} not found in local database"
+            );
         }
 
         return $user;
@@ -370,9 +389,13 @@ class KeycloakGuard implements Guard
      *
      * @return \Illuminate\Contracts\Auth\Authenticatable
      */
-    protected function resolveUserFromCallback(UnencryptedToken $token): Authenticatable
+    protected function resolveUserFromCallback(UnencryptedToken $token): ?Authenticatable
     {
-        $user = call_user_func($this->userCreateCallback, $token);
+        if (is_null($this->userNotFoundCallback)) {
+            return null;
+        }
+
+        $user = call_user_func($this->userNotFoundCallback, $token);
 
         if (!$user instanceof Authenticatable) {
             throw new RuntimeException('An instance of '.Authenticatable::class.' was expected from callback, '.gettype($user). ' given.');
@@ -420,4 +443,28 @@ class KeycloakGuard implements Guard
             $this->login($user, $token);
         });
     }
+
+    /**
+     * Retrieve the authenticatable instance by token.
+     *
+     * @param \Lcobucci\JWT\UnencryptedToken $token
+     *
+     * @return \Illuminate\Contracts\Auth\Authenticatable|null
+     */
+    protected function retrieveUserByToken(UnencryptedToken $token): ?Authenticatable
+    {
+        if (!is_null($this->userResolverByToken)) {
+            $user = call_user_func($this->userResolverByToken, $token);
+
+            if (!$user instanceof Authenticatable) {
+                throw new RuntimeException('An instance of '.Authenticatable::class.' was expected from callback, '.gettype($user). ' given.');
+            }
+
+            return $user;
+        }
+
+        return $this->provider->retrieveByCredentials([
+            'sub' => $token->claims()->get('sub')
+        ]);
+}
 }

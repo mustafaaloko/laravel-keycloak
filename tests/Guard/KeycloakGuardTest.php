@@ -133,7 +133,7 @@ class KeycloakGuardTest extends TestCase
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
         $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
-        $parsedToken->shouldReceive('claims')->once()->andReturn($dataSet);
+        $parsedToken->shouldReceive('claims')->twice()->andReturn($dataSet);
         $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn(null);
 
@@ -151,7 +151,7 @@ class KeycloakGuardTest extends TestCase
         $session = m::spy(Session::class);
         $dataSet = new DataSet(['sub' => 'user-id-10'], 'encoded');
         $user = m::mock(Authenticatable::class);
-        $parsedToken = m::mock(UnencryptedToken::class);
+        $parsedToken = m::spy(UnencryptedToken::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
 
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
@@ -163,9 +163,13 @@ class KeycloakGuardTest extends TestCase
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn(null);
         $user->shouldReceive('getAuthIdentifier')->once()->andReturn(10);
 
-        $guard->userCreateResolver(fn() => $user);
+        $guard->userNotFoundHandler(function (UnencryptedToken $token) use ($user) {
+            $token->payload();
+            return $user;
+        });
         $guard->handleCallback();
 
+        $parsedToken->shouldHaveReceived('payload');
         $session->shouldHaveReceived('put')->with(
             $guard->getName(), ['id' => 10, 'token' => $token->jsonSerialize()]
         )->once();
@@ -191,7 +195,8 @@ class KeycloakGuardTest extends TestCase
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn(null);
 
         $this->expectException(\RuntimeException::class);
-        $guard->userCreateResolver(fn() => 123);
+        $this->expectExceptionMessageMatches('/An instance of '.preg_quote(Authenticatable::class).' was expected/');
+        $guard->userNotFoundHandler(fn() => 123);
         $guard->handleCallback();
 
         $session->shouldNotHaveReceived('put');
@@ -418,6 +423,61 @@ class KeycloakGuardTest extends TestCase
         $keycloak->shouldNotReceive('unserializeToken');
 
         $this->assertNull($guard->token());
+    }
+
+    public function testUserRetrievingCanBeOverriddenByACallback()
+    {
+        $token = $this->dummyAccessToken();
+        $provider = m::spy(UserProvider::class);
+        $session = m::spy(Session::class);
+        $parsedToken = m::spy(UnencryptedToken::class);
+        $user = m::mock(Authenticatable::class);
+        $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+
+        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
+        $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
+        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+        $user->shouldReceive('getAuthIdentifier')->once()->andReturn(10);
+
+        $guard->resolveUserByToken(function (UnencryptedToken $token) use ($user) {
+            $token->payload();
+            return $user;
+        });
+        $guard->handleCallback();
+
+        $parsedToken->shouldHaveReceived('payload');
+        $provider->shouldNotHaveReceived('retrieveByCredentials');
+        $session->shouldHaveReceived('put')->with($guard->getName(), ['id' => 10, 'token' => $token->jsonSerialize()])->once();
+        $session->shouldHaveReceived('migrate')->with(true);
+        $this->assertSame($user, $guard->user());
+    }
+
+    public function testItThrowsExceptionIfTheReturnedTypeOfUserByTokenCallbackIsNotOfTypeAuthenticatable()
+    {
+        $token = $this->dummyAccessToken();
+        $provider = m::spy(UserProvider::class);
+        $session = m::spy(Session::class);
+        $parsedToken = m::spy(UnencryptedToken::class);
+        $user = m::mock(Authenticatable::class);
+        $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+
+        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
+        $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
+        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/An instance of '.preg_quote(Authenticatable::class).' was expected/');
+        $guard->resolveUserByToken(fn() => 123);
+        $guard->handleCallback();
+
+        $provider->shouldNotHaveReceived('retrieveByCredentials');
+        $session->shouldNotHaveReceived('put');
+        $session->shouldNotHaveReceived('migrate');
+        $this->assertNull($guard->user());
     }
 
     /**
