@@ -2,6 +2,8 @@
 
 namespace Aloko\Keycloak;
 
+use Aloko\Keycloak\Token\Token;
+use Aloko\Keycloak\Token\TokenBag;
 use Exception;
 use RuntimeException;
 use BadMethodCallException;
@@ -36,9 +38,9 @@ class KeycloakGuard implements Guard
     /**
      * The base Keycloak instance.
      *
-     * @var \Aloko\Keycloak\KeycloakProvider
+     * @var \Aloko\Keycloak\KeycloakManager
      */
-    protected KeycloakProvider $keycloak;
+    protected KeycloakManager $keycloak;
 
     /**
      * The session instance used by guard.
@@ -79,14 +81,14 @@ class KeycloakGuard implements Guard
      * Creates a new Keycloak Guard instance.
      *
      * @param                                         $name
-     * @param \Aloko\Keycloak\KeycloakProvider        $keycloak
+     * @param \Aloko\Keycloak\KeycloakManager         $keycloak
      * @param \Illuminate\Contracts\Auth\UserProvider $provider
      * @param \Illuminate\Contracts\Session\Session   $session
      * @param \Illuminate\Http\Request                $request
      *
      * @return void
      */
-    public function __construct($name, KeycloakProvider $keycloak, UserProvider $provider, Session $session, Request $request)
+    public function __construct($name, KeycloakManager $keycloak, UserProvider $provider, Session $session, Request $request)
     {
         $this->name = $name;
         $this->keycloak = $keycloak;
@@ -100,7 +102,7 @@ class KeycloakGuard implements Guard
      *
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
-     * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailed
+     * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException
      */
     public function user(): ?Authenticatable
     {
@@ -113,12 +115,12 @@ class KeycloakGuard implements Guard
 
         if ($session = $this->retrieveSession()) {
             $this->keycloak->verifyTokenSignature(
-                $token = $this->keycloak->unserializeToken($session['token'])
+                $tokenBag = $this->keycloak->unserializeToken($session['token'])
             );
 
             // If the token has not expired, we will just attempt to retrieve the current
             // user instance using the ID stored in the session and return it back.
-            if (! $token->hasExpired()) {
+            if (! $tokenBag->accessToken()->isExpired()) {
                 return $this->user = $this->provider->retrieveById($session['id']);
             }
 
@@ -126,7 +128,7 @@ class KeycloakGuard implements Guard
             // a new login with the new token received, if all good, we will store the new
             // token's data to replace old token's data to be used in future attempts.
             return $this->attemptLoginWithNewToken(
-                $this->attemptTokenRefresh($token)
+                $this->attemptTokenRefresh($tokenBag)
             );
         }
 
@@ -181,18 +183,48 @@ class KeycloakGuard implements Guard
     }
 
     /**
+     * Handles the callback from keycloak.
+     *
+     * @param \Illuminate\Http\Request|null $request
+     *
+     * @return void
+     * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
+     * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
+     * @throws \Aloko\Keycloak\Exceptions\StateMismatchException
+     * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException
+     */
+    public function handleCallback(Request $request = null): void
+    {
+        $request = $request ?? $this->request;
+
+        if ($request->get('state') !== $this->session->get('oauth2state')) {
+            throw new StateMismatchException('OIDC state mismatch.');
+        }
+
+        $this->keycloak->verifyTokenSignature(
+            $tokenBag = $this->exchangeCodeForToken($request->get('code'))
+        );
+
+        $user = $this->resolveUser(
+            $this->keycloak->parseToken($tokenBag)
+        );
+
+        $this->login($user, $tokenBag);
+    }
+
+    /**
      * Attempts a refresh token call.
      *
-     * @param \League\OAuth2\Client\Token\AccessToken $token
+     * @param \Aloko\Keycloak\Token\TokenBag $token
      *
      * @return \League\OAuth2\Client\Token\AccessToken|null
      */
-    protected function attemptTokenRefresh(AccessToken $token): ?AccessToken
+    protected function attemptTokenRefresh(TokenBag $token): ?TokenBag
     {
         try {
-            return $this->keycloak->refreshToken($token->getRefreshToken());
-        } catch (IdentityProviderException $e) {
-            return null;
+            return $this->keycloak->refreshToken($token);
+        } catch (FetchAccessTokenFailedException $e) {
+            return null; // TODO: To be handled in a better way
         }
     }
 
@@ -221,44 +253,14 @@ class KeycloakGuard implements Guard
     }
 
     /**
-     * Handles the callback from keycloak.
-     *
-     * @param \Illuminate\Http\Request|null $request
-     *
-     * @return void
-     * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
-     * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
-     * @throws \Aloko\Keycloak\Exceptions\StateMismatchException
-     * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailed
-     */
-    public function handleCallback(Request $request = null): void
-    {
-        $request = $request ?? $this->request;
-
-        if ($request->get('state') !== $this->session->get('oauth2state')) {
-            throw new StateMismatchException('OIDC state mismatch.');
-        }
-
-        $this->keycloak->verifyTokenSignature(
-            $token = $this->exchangeCodeForToken($request->get('code'))
-        );
-
-        $user = $this->resolveUser(
-            $this->keycloak->parseToken($token)
-        );
-
-        $this->login($user, $token);
-    }
-
-    /**
      * Logins a user into the application.
      *
      * @param \Illuminate\Contracts\Auth\Authenticatable $user
-     * @param \League\OAuth2\Client\Token\AccessToken    $token
+     * @param \Aloko\Keycloak\Token\TokenBag             $token
      *
      * @return void
      */
-    public function login(Authenticatable $user, AccessToken $token)
+    public function login(Authenticatable $user, TokenBag $token)
     {
         $this->updateSession($user, $token);
 
@@ -269,11 +271,11 @@ class KeycloakGuard implements Guard
      * Update the session with the given ID.
      *
      * @param \Illuminate\Contracts\Auth\Authenticatable $user
-     * @param \League\OAuth2\Client\Token\AccessToken    $token
+     * @param \Aloko\Keycloak\Token\TokenBag             $token
      *
      * @return void
      */
-    protected function updateSession(Authenticatable $user, AccessToken $token): void
+    protected function updateSession(Authenticatable $user, TokenBag $token): void
     {
         $data = [
             'id' => $user->getAuthIdentifier(),
@@ -297,9 +299,9 @@ class KeycloakGuard implements Guard
     /**
      * Retrieves the current stored token.
      *
-     * @return \League\OAuth2\Client\Token\AccessToken|null
+     * @return \Aloko\Keycloak\Token\TokenBag|null
      */
-    public function token(): ?AccessToken
+    public function token(): ?TokenBag
     {
         if ($session = $this->retrieveSession()) {
             return $this->keycloak->unserializeToken($session['token']);
@@ -311,13 +313,13 @@ class KeycloakGuard implements Guard
     /**
      * Resolve a user from the database using the passed token.
      *
-     * @param \Lcobucci\JWT\UnencryptedToken $token
-     * @param bool                           $upsert
+     * @param \Aloko\Keycloak\Token\Token $token
+     * @param bool                        $upsert
      *
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
      */
-    protected function resolveUser(UnencryptedToken $token, bool $upsert = true): ?Authenticatable
+    protected function resolveUser(Token $token, bool $upsert = true): ?Authenticatable
     {
         $user = $this->retrieveUserByToken($token);
 
@@ -343,10 +345,10 @@ class KeycloakGuard implements Guard
      *
      * @param string $code
      *
-     * @return \League\OAuth2\Client\Token\AccessToken
+     * @return \Aloko\Keycloak\Token\TokenBag
      * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
      */
-    protected function exchangeCodeForToken(string $code): AccessToken
+    protected function exchangeCodeForToken(string $code): TokenBag
     {
         try {
             return $this->keycloak->fetchToken($code);
@@ -387,11 +389,11 @@ class KeycloakGuard implements Guard
     /**
      * Resolve the user using the user provided callback.
      *
-     * @param \Lcobucci\JWT\UnencryptedToken $token
+     * @param \Aloko\Keycloak\Token\Token $token
      *
      * @return \Illuminate\Contracts\Auth\Authenticatable
      */
-    protected function resolveUserFromCallback(UnencryptedToken $token): ?Authenticatable
+    protected function resolveUserFromCallback(Token $token): ?Authenticatable
     {
         if (is_null($this->userNotFoundCallback)) {
             return null;
@@ -425,35 +427,33 @@ class KeycloakGuard implements Guard
     /**
      * Attempt a fresh login to replace old token data with new one.
      *
-     * @param \League\OAuth2\Client\Token\AccessToken|null $token
+     * @param \Aloko\Keycloak\Token\TokenBag|null $tokenBag
      *
-     * @return \Illuminate\Support\HigherOrderTapProxy|mixed|null
+     * @return \Illuminate\Contracts\Auth\Authenticatable|null
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
      */
-    protected function attemptLoginWithNewToken(?AccessToken $token): ?Authenticatable
+    protected function attemptLoginWithNewToken(?TokenBag $tokenBag): ?Authenticatable
     {
-        if (is_null($token)) {
+        if (is_null($tokenBag)) {
             $this->session->remove($this->getName());
             return $this->user = null;
         }
 
-        $user = $this->resolveUser(
-            $this->keycloak->parseToken($token), false
-        );
+        $user = $this->resolveUser($tokenBag->accessToken(), false);
 
-        return $this->user = tap($user, function ($user) use ($token) {
-            $this->login($user, $token);
+        return $this->user = tap($user, function ($user) use ($tokenBag) {
+            $this->login($user, $tokenBag);
         });
     }
 
     /**
      * Retrieve the authenticatable instance by token.
      *
-     * @param \Lcobucci\JWT\UnencryptedToken $token
+     * @param \Aloko\Keycloak\Token\Token $token
      *
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
-    protected function retrieveUserByToken(UnencryptedToken $token): ?Authenticatable
+    protected function retrieveUserByToken(Token $token): ?Authenticatable
     {
         if (!is_null($this->userResolverByToken)) {
             $user = call_user_func($this->userResolverByToken, $token);

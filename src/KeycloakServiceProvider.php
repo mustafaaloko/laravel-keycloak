@@ -31,7 +31,7 @@ class KeycloakServiceProvider extends ServiceProvider
         $this->app['auth']->extend('keycloak', function ($app, $name, array $config) {
             return new KeycloakGuard(
                 $name,
-                new KeycloakProvider(
+                new KeycloakManager(
                     $this->config(),
                     $this->getJwtConfiguration()
                 ),

@@ -5,8 +5,8 @@ namespace Aloko\Keycloak\Tests\Guard;
 use Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException;
 use Aloko\Keycloak\Exceptions\RelatedUserNotFoundException;
 use Aloko\Keycloak\Exceptions\StateMismatchException;
-use Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailed;
-use Aloko\Keycloak\KeycloakProvider;
+use Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException;
+use Aloko\Keycloak\KeycloakManager;
 use Aloko\Keycloak\KeycloakGuard;
 use Carbon\Carbon;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -255,9 +255,9 @@ class KeycloakGuardTest extends TestCase
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
         $keycloak->shouldReceive('verifyTokenSignature')
             ->with($token->getToken())
-            ->andThrows(TokenSignatureVerificationFailed::class);
+            ->andThrows(TokenSignatureVerificationFailedException::class);
 
-        $this->expectException(TokenSignatureVerificationFailed::class);
+        $this->expectException(TokenSignatureVerificationFailedException::class);
         $guard->handleCallback();
 
         $session->shouldNotHaveReceived('put');
@@ -457,7 +457,7 @@ class KeycloakGuardTest extends TestCase
         $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
 
-        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakProvider::class), $provider, $session, $request);
+        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
         $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
@@ -486,7 +486,7 @@ class KeycloakGuardTest extends TestCase
         $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
 
-        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakProvider::class), $provider, $session, $request);
+        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
         $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
@@ -509,7 +509,7 @@ class KeycloakGuardTest extends TestCase
     protected function getMocks(): array
     {
         return [
-            m::mock(KeycloakProvider::class),
+            m::mock(KeycloakManager::class),
             m::mock(UserProvider::class),
             m::mock(Session::class)
         ];

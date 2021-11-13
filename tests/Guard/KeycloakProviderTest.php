@@ -2,7 +2,9 @@
 
 namespace Aloko\Keycloak\Tests\Guard;
 
-use Aloko\Keycloak\KeycloakProvider;
+use Aloko\Keycloak\KeycloakManager;
+use Aloko\Keycloak\Token\Token;
+use Aloko\Keycloak\Token\TokenManager;
 use League\OAuth2\Client\Token\AccessToken;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
@@ -15,31 +17,33 @@ class KeycloakProviderTest extends TestCase
 
     public function testItCreatesAKeycloakProviderInstanceFromConfig()
     {
-        $instance = KeycloakProvider::createFromConfig($this->sampleConfig());
+        $instance = new KeycloakManager($this->sampleConfig(), m::mock(TokenManager::class));
 
-        $this->assertInstanceOf(KeycloakProvider::class, $instance);
+        $this->assertInstanceOf(KeycloakManager::class, $instance);
         $this->assertInstanceOf(Keycloak::class, $instance);
     }
 
     public function testItCanFetchToken()
     {
         $token = m::mock(AccessToken::class);
-        $keycloak = m::mock(KeycloakProvider::class.'[getAccessToken]');
+        $keycloak = m::mock(KeycloakManager::class.'[getAccessToken]', [$this->sampleConfig(), m::mock(TokenManager::class)]);
         $keycloak->shouldReceive('getAccessToken')->with('authorization_code', ['code' => 'foo'])->andReturn($token);
 
-        $this->assertSame($token, $keycloak->fetchToken('foo'));
+        $this->assertInstanceOf(Token::class, $keycloak->fetchToken('foo'));
     }
+
 
     public function testItCanRefreshToken()
     {
         $token = m::mock(AccessToken::class);
-        $keycloak = m::mock(KeycloakProvider::class.'[getAccessToken]');
+        $keycloak = m::mock(KeycloakManager::class.'[getAccessToken]');
         $keycloak->shouldReceive('getAccessToken')->with('refresh_token', ['refresh_token' => 'foo'])->andReturn($token);
 
         $this->assertSame($token, $keycloak->refreshToken('foo'));
     }
 
     /**
+     * @codeCoverageIgnore
      * @runInSeparateProcess
      * @preserveGlobalState disabled
      */
@@ -50,11 +54,12 @@ class KeycloakProviderTest extends TestCase
             'redirect_uri' => '/auth/logout/callback'
         ])->andReturn('foo');
 
-        $keycloak = KeycloakProvider::createFromConfig($this->sampleConfig());
+        $keycloak = KeycloakManager::createFromConfig($this->sampleConfig());
         $keycloak->getLogoutUrl();
     }
 
     /**
+     * @codeCoverageIgnore
      * @runInSeparateProcess
      * @preserveGlobalState disabled
      */
@@ -63,7 +68,7 @@ class KeycloakProviderTest extends TestCase
         $parent = m::mock('overload:'.Keycloak::class);
         $parent->shouldReceive('getLogoutUrl')->once()->with(['redirect_uri' => 'foo'])->andReturn('foo');
 
-        $keycloak = KeycloakProvider::createFromConfig($this->sampleConfig());
+        $keycloak = KeycloakManager::createFromConfig($this->sampleConfig());
         $keycloak->getLogoutUrl(['redirect_uri' => 'foo']);
     }
 
