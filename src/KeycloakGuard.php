@@ -4,23 +4,21 @@ namespace Aloko\Keycloak;
 
 use Aloko\Keycloak\Token\Token;
 use Aloko\Keycloak\Token\TokenBag;
-use Exception;
+use Illuminate\Support\Facades\Log;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
 use BadMethodCallException;
 use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Illuminate\Auth\GuardHelpers;
-use Lcobucci\JWT\UnencryptedToken;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Contracts\Auth\UserProvider;
-use League\OAuth2\Client\Token\AccessToken;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Aloko\Keycloak\Exceptions\StateMismatchException;
 use Aloko\Keycloak\Exceptions\RelatedUserNotFoundException;
-use Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException;
-use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
+use Aloko\Keycloak\Exceptions\FetchTokenFailedException;
 
 class KeycloakGuard implements Guard
 {
@@ -57,6 +55,13 @@ class KeycloakGuard implements Guard
     protected Request $request;
 
     /**
+     * The logger instance.
+     *
+     * @var \Psr\Log\LoggerInterface|null
+     */
+    protected ?LoggerInterface $logger;
+
+    /**
      * Callback to create users if not found in the system.
      *
      * @var callable|null
@@ -88,13 +93,19 @@ class KeycloakGuard implements Guard
      *
      * @return void
      */
-    public function __construct($name, KeycloakManager $keycloak, UserProvider $provider, Session $session, Request $request)
+    public function __construct($name,
+                                KeycloakManager $keycloak,
+                                UserProvider $provider,
+                                Session $session,
+                                Request $request,
+                                LoggerInterface $logger = null)
     {
         $this->name = $name;
         $this->keycloak = $keycloak;
         $this->provider = $provider;
         $this->session = $session;
         $this->request = $request;
+        $this->logger = $logger;
     }
 
     /**
@@ -103,6 +114,7 @@ class KeycloakGuard implements Guard
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
      * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException
+     * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      */
     public function user(): ?Authenticatable
     {
@@ -120,7 +132,7 @@ class KeycloakGuard implements Guard
 
             // If the token has not expired, we will just attempt to retrieve the current
             // user instance using the ID stored in the session and return it back.
-            if (! $tokenBag->accessToken()->isExpired()) {
+            if (! $tokenBag->isExpired()) {
                 return $this->user = $this->provider->retrieveById($session['id']);
             }
 
@@ -188,7 +200,7 @@ class KeycloakGuard implements Guard
      * @param \Illuminate\Http\Request|null $request
      *
      * @return void
-     * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
+     * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
      * @throws \Aloko\Keycloak\Exceptions\StateMismatchException
      * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException
@@ -205,9 +217,7 @@ class KeycloakGuard implements Guard
             $tokenBag = $this->exchangeCodeForToken($request->get('code'))
         );
 
-        $user = $this->resolveUser(
-            $this->keycloak->parseToken($tokenBag)
-        );
+        $user = $this->resolveUser($tokenBag->accessToken());
 
         $this->login($user, $tokenBag);
     }
@@ -217,14 +227,15 @@ class KeycloakGuard implements Guard
      *
      * @param \Aloko\Keycloak\Token\TokenBag $token
      *
-     * @return \League\OAuth2\Client\Token\AccessToken|null
+     * @return \Aloko\Keycloak\Token\TokenBag|null
      */
     protected function attemptTokenRefresh(TokenBag $token): ?TokenBag
     {
         try {
             return $this->keycloak->refreshToken($token);
-        } catch (FetchAccessTokenFailedException $e) {
-            return null; // TODO: To be handled in a better way
+        } catch (FetchTokenFailedException $e) {
+            $this->getLogger()->error('Attempt to refresh token failed', ['exception' => $e]);
+            return null;
         }
     }
 
@@ -333,7 +344,7 @@ class KeycloakGuard implements Guard
 
         if (is_null($user)) {
             throw new RelatedUserNotFoundException(
-                "User with 'sub' claim #{$token->claims()->get('sub')} not found in local database"
+                "User with 'sub' claim #{$token->subject()} not found in local database"
             );
         }
 
@@ -346,15 +357,11 @@ class KeycloakGuard implements Guard
      * @param string $code
      *
      * @return \Aloko\Keycloak\Token\TokenBag
-     * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
+     * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      */
     protected function exchangeCodeForToken(string $code): TokenBag
     {
-        try {
-            return $this->keycloak->fetchToken($code);
-        } catch (Exception $ex) {
-            throw new FetchAccessTokenFailedException("Fetching Token failed: {$ex->getMessage()}");
-        }
+        return $this->keycloak->fetchToken($code);
     }
 
     /**
@@ -432,17 +439,17 @@ class KeycloakGuard implements Guard
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
      */
-    protected function attemptLoginWithNewToken(?TokenBag $tokenBag): ?Authenticatable
+    protected function attemptLoginWithNewToken(?TokenBag $newTokenBag): ?Authenticatable
     {
-        if (is_null($tokenBag)) {
+        if (is_null($newTokenBag)) {
             $this->session->remove($this->getName());
             return $this->user = null;
         }
 
-        $user = $this->resolveUser($tokenBag->accessToken(), false);
+        $user = $this->retrieveUserByToken($newTokenBag->accessToken());
 
-        return $this->user = tap($user, function ($user) use ($tokenBag) {
-            $this->login($user, $tokenBag);
+        return $this->user = tap($user, function ($user) use ($newTokenBag) {
+            $this->login($user, $newTokenBag);
         });
     }
 
@@ -465,8 +472,18 @@ class KeycloakGuard implements Guard
             return $user;
         }
 
-        return $this->provider->retrieveByCredentials([
-            'sub' => $token->claims()->get('sub')
-        ]);
+        return $this->provider->retrieveByCredentials(['sub' => $token->subject()]);
+    }
+
+    public function logger(): ?LoggerInterface
+    {
+        return $this->logger;
+    }
+
+    public function setRequest(Request $request): KeycloakGuard
+    {
+        $this->request = $request;
+
+        return $this;
     }
 }

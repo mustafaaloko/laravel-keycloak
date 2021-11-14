@@ -2,6 +2,8 @@
 
 namespace Aloko\Keycloak;
 
+use Aloko\Keycloak\Token\TokenManager;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Lcobucci\JWT\Configuration;
 use Lcobucci\JWT\Signer\Key\InMemory;
@@ -26,33 +28,44 @@ class KeycloakServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/keycloak.php', 'keycloak');
+        $this->mergeConfigFrom(__DIR__.'/../config/config.php', 'keycloak');
 
-        $this->app['auth']->extend('keycloak', function ($app, $name, array $config) {
-            return new KeycloakGuard(
-                $name,
-                new KeycloakManager(
-                    $this->config(),
-                    $this->getJwtConfiguration()
-                ),
-                $app['auth']->createUserProvider($config['provider']),
-                $app['session.store'],
-                $app['request']
-            );
+        $this->app['auth']->extend('keycloak', function (Application $app, $name, array $config) {
+            return $this->buildKeycloakGuard($app, $name, $config);
         });
     }
 
-    protected function getJwtConfiguration(): Configuration
+    protected function buildKeycloakGuard(Application $app, $name, array $config): KeycloakGuard
+    {
+        $guard = new KeycloakGuard(
+            $name,
+            new KeycloakManager($this->keycloakConfig(), $this->buildTokenManager()),
+            $app['auth']->createUserProvider($config['provider'] ?? null),
+            $app['session.store'],
+            $app['request']
+        );
+
+        $guard->setRequest($this->app->refresh('request', $guard, 'setRequest'));
+
+        return $guard;
+    }
+
+    protected function buildTokenManager(): TokenManager
+    {
+        return new TokenManager($this->buildJwtConfig());
+    }
+
+    protected function buildJwtConfig(): Configuration
     {
         return Configuration::forAsymmetricSigner(
             new Sha256(),
             InMemory::plainText(''),
-            InMemory::plainText($this->config()['realm_public_key'])
+            InMemory::plainText($this->keycloakConfig('realm_public_key'))
         );
     }
 
-    protected function config()
+    protected function keycloakConfig($key = null)
     {
-        return config('keycloak');
+        return config(is_null($key) ? 'keycloak' : 'keycloak.'.$key);
     }
 }

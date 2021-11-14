@@ -2,7 +2,7 @@
 
 namespace Aloko\Keycloak\Token;
 
-class TokenBag extends \Aloko\Keycloak\Token\Token
+class TokenBag
 {
     protected Token $accessToken;
 
@@ -22,6 +22,11 @@ class TokenBag extends \Aloko\Keycloak\Token\Token
     public function refreshToken(): Token
     {
         return $this->refreshToken;
+    }
+
+    public function isExpired(): bool
+    {
+        return $this->accessToken->isExpired();
     }
 
     public function jsonSerialize(): array

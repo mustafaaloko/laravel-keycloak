@@ -2,12 +2,14 @@
 
 namespace Aloko\Keycloak\Tests\Guard;
 
-use Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException;
+use Aloko\Keycloak\Exceptions\FetchTokenFailedException;
 use Aloko\Keycloak\Exceptions\RelatedUserNotFoundException;
 use Aloko\Keycloak\Exceptions\StateMismatchException;
 use Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException;
 use Aloko\Keycloak\KeycloakManager;
 use Aloko\Keycloak\KeycloakGuard;
+use Aloko\Keycloak\Token\Token;
+use Aloko\Keycloak\Token\TokenBag;
 use Carbon\Carbon;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\UserProvider;
@@ -117,27 +119,27 @@ class KeycloakGuardTest extends TestCase
 
     public function testItUpdatesTheSessionWithIdAndTokenInformation()
     {
-        $token = $this->dummyAccessToken();
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
-        $dataSet = new DataSet(['sub' => 'user-id-10'], 'encoded');
-        $parsedToken = m::mock(UnencryptedToken::class);
         $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+        $tokenBag = m::mock(TokenBag::class);
+        $accessToken = m::mock(Token::class);
+        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken);
+        $accessToken->shouldReceive('subject')->andReturn('user-id-10');
 
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
-        $parsedToken->shouldReceive('claims')->once()->andReturn($dataSet);
-        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($tokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn($user);
+        $tokenBag->shouldReceive('jsonSerialize')->andReturn($tokenBag->jsonSerialize());
         $user->shouldReceive('getAuthIdentifier')->once()->andReturn(10);
 
         $guard->handleCallback();
 
         $session->shouldHaveReceived('put')->with(
-            $guard->getName(), ['id' => 10, 'token' => $token->jsonSerialize()]
+            $guard->getName(), ['id' => 10, 'token' => $tokenBag->jsonSerialize()]
         )->once();
         $session->shouldHaveReceived('migrate')->with(true);
         $this->assertSame($user, $guard->user());
@@ -145,20 +147,21 @@ class KeycloakGuardTest extends TestCase
 
     public function testItThrowsExceptionIfRetrieveByCredentialsReturnNull()
     {
-        $token = $this->dummyAccessToken();
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
-        $dataSet = new DataSet(['sub' => 'user-id-10'], 'encoded');
-        $parsedToken = m::mock(UnencryptedToken::class);
+        $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+        $tokenBag = m::mock(TokenBag::class);
+        $accessToken = m::mock(Token::class);
+        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken);
+        $accessToken->shouldReceive('subject')->andReturn('user-id-10');
 
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
-        $parsedToken->shouldReceive('claims')->twice()->andReturn($dataSet);
-        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($tokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn(null);
+        $user->shouldNotReceive('getAuthIdentifier');
 
         $this->expectException(RelatedUserNotFoundException::class);
         $guard->handleCallback();
@@ -169,32 +172,28 @@ class KeycloakGuardTest extends TestCase
 
     public function testItSupportsUserCreateCallbackIfUserIsNotFound()
     {
-        $token = $this->dummyAccessToken();
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
-        $dataSet = new DataSet(['sub' => 'user-id-10'], 'encoded');
         $user = m::mock(Authenticatable::class);
-        $parsedToken = m::spy(UnencryptedToken::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+        $tokenBag = m::mock(TokenBag::class);
+        $accessToken = m::mock(Token::class);
+        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken);
+        $accessToken->shouldReceive('subject')->andReturn('user-id-10');
 
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
-        $parsedToken->shouldReceive('claims')->once()->andReturn($dataSet);
-        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($tokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn(null);
+        $tokenBag->shouldReceive('jsonSerialize')->andReturn($tokenBag->jsonSerialize());
         $user->shouldReceive('getAuthIdentifier')->once()->andReturn(10);
 
-        $guard->userNotFoundHandler(function (UnencryptedToken $token) use ($user) {
-            $token->payload();
-            return $user;
-        });
+        $guard->userNotFoundHandler(fn(Token $token) => $user);
         $guard->handleCallback();
 
-        $parsedToken->shouldHaveReceived('payload');
         $session->shouldHaveReceived('put')->with(
-            $guard->getName(), ['id' => 10, 'token' => $token->jsonSerialize()]
+            $guard->getName(), ['id' => 10, 'token' => $tokenBag->jsonSerialize()]
         )->once();
         $session->shouldHaveReceived('migrate')->with(true);
         $this->assertSame($user, $guard->user());
@@ -202,19 +201,19 @@ class KeycloakGuardTest extends TestCase
 
     public function testItThrowsExceptionIfCallbackReturnTypeIsNotAuthenticatable()
     {
-        $token = $this->dummyAccessToken();
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
-        $dataSet = new DataSet(['sub' => 'user-id-10'], 'encoded');
-        $parsedToken = m::mock(UnencryptedToken::class);
+        $user = m::mock(Authenticatable::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+        $tokenBag = m::mock(TokenBag::class);
+        $accessToken = m::mock(Token::class);
+        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken);
+        $accessToken->shouldReceive('subject')->andReturn('user-id-10');
 
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
-        $parsedToken->shouldReceive('claims')->once()->andReturn($dataSet);
-        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($tokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn(null);
 
         $this->expectException(\RuntimeException::class);
@@ -236,7 +235,7 @@ class KeycloakGuardTest extends TestCase
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
         $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andThrows(\Exception::class);
 
-        $this->expectException(FetchAccessTokenFailedException::class);
+        $this->expectException(FetchTokenFailedException::class);
         $guard->handleCallback();
 
         $session->shouldNotHaveReceived('put');
@@ -245,16 +244,16 @@ class KeycloakGuardTest extends TestCase
 
     public function testTokenSignatureFailedExceptionIsRethrown()
     {
-        $token = $this->dummyAccessToken();
+        $tokenBag = m::mock(TokenBag::class);
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
         $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
 
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
+        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($tokenBag);
         $keycloak->shouldReceive('verifyTokenSignature')
-            ->with($token->getToken())
+            ->with($tokenBag)
             ->andThrows(TokenSignatureVerificationFailedException::class);
 
         $this->expectException(TokenSignatureVerificationFailedException::class);
@@ -288,17 +287,15 @@ class KeycloakGuardTest extends TestCase
     public function testUserReturnsAuthenticatedUserIfTokenAndDetailsAreValid()
     {
         [$keycloak, $provider, $session] = $this->getMocks();
-        $request = Request::create('/', 'GET');
-        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
+        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
         $user = m::mock(Authenticatable::class);
-        $accessToken = $this->dummyAccessToken();
-        $sessionData = [
-            'id' => 10,
-            'token' => $accessToken->jsonSerialize()
-        ];
+        $tokenBag = m::mock(TokenBag::class);
+        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken = m::mock(Token::class));
+        $accessToken->shouldReceive('isExpired')->andReturn(false);
+        $sessionData = ['id' => 10, 'token' => ['foo' => 'bar']];
         $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
-        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($accessToken);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($accessToken->getToken())->once();
+        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($tokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
         $provider->shouldReceive('retrieveById')->with(10)->andReturn($user);
 
         $this->assertInstanceOf(Authenticatable::class, $guard->user());
@@ -322,29 +319,27 @@ class KeycloakGuardTest extends TestCase
     {
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
-        $request = Request::create('/', 'GET');
-        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $user = m::mock(Authenticatable::class);
-        $dataSet = new DataSet(['sub' => 'user-id-10'], 'encoded');
-        $parsedToken = m::mock(UnencryptedToken::class);
-        $expiredToken = $this->dummyAccessToken(Carbon::now()->subDay()->getTimestamp());
-        $sessionData = [
-            'id' => 10,
-            'token' => $expiredToken->jsonSerialize()
-        ];
+        $tokenBag = m::mock(TokenBag::class);
+        $newTokenBag = m::mock(TokenBag::class);
+
+        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
+        $sessionData = ['id' => 10, 'token' => ['foo' => 'bar']];
         $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
-        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($expiredToken);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($expiredToken->getToken());
-        $newToken = $this->dummyAccessToken(Carbon::now()->addDay()->getTimestamp());
-        $keycloak->shouldReceive('refreshToken')->with($expiredToken->getRefreshToken())->andReturn($newToken);
-        $parsedToken->shouldReceive('claims')->once()->andReturn($dataSet);
-        $keycloak->shouldReceive('parseToken')->with($newToken->getToken())->once()->andReturn($parsedToken);
+        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($tokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
+        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken = m::mock(Token::class));
+        $accessToken->shouldReceive('isExpired')->andReturn(true);
+        $keycloak->shouldReceive('refreshToken')->with($tokenBag)->andReturn($newTokenBag);
+        $newTokenBag->shouldReceive('accessToken')->andReturn($newToken = m::mock(Token::class));
+        $newToken->shouldReceive('subject')->andReturn('user-id-10');
+        $newTokenBag->shouldReceive('jsonSerialize')->once()->andReturn(['foo' => 'biz']);
         $provider->shouldReceive('retrieveByCredentials')->with(['sub' => 'user-id-10'])->andReturn($user);
         $user->shouldReceive('getAuthIdentifier')->once()->andReturn(10);
         $provider->shouldNotReceive('retrieveById');
 
         $session->shouldReceive('put')->with(
-            $guard->getName(), ['id' => 10, 'token' => $newToken->jsonSerialize()]
+            $guard->getName(), ['id' => 10, 'token' => ['foo' => 'biz']]
         )->once();
         $session->shouldReceive('migrate')->with(true);
         $this->assertSame($user, $guard->user());
@@ -357,22 +352,13 @@ class KeycloakGuardTest extends TestCase
         $request = Request::create('/', 'GET');
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
         $user = m::mock(Authenticatable::class);
-        $expiredToken = $this->dummyAccessToken(Carbon::now()->subDay()->getTimestamp());
-        $sessionData = [
-            'id' => 10,
-            'token' => $expiredToken->jsonSerialize()
-        ];
+        $expiredTokenBag = m::mock(TokenBag::class);
+        $expiredTokenBag->shouldReceive('isExpired')->andReturnTrue();
+        $sessionData = ['id' => 10, 'token' => ['foo' => 'bar']];
         $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
-        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($expiredToken);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($expiredToken->getToken());
-        $keycloak
-            ->shouldReceive('refreshToken')
-            ->with($expiredToken->getRefreshToken())
-            ->andThrows(IdentityProviderException::class);
-        $keycloak->shouldNotReceive('parseToken');
-        $provider->shouldNotReceive('retrieveByCredentials');
-        $user->shouldNotReceive('getAuthIdentifier');
-        $provider->shouldNotReceive('retrieveById');
+        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($expiredTokenBag);
+        $keycloak->shouldReceive('verifyTokenSignature')->with($expiredTokenBag)->once();
+        $keycloak->shouldReceive('refreshToken')->with($expiredTokenBag)->andThrows(IdentityProviderException::class);
 
         $session->shouldReceive('remove')->with($guard->getName());
         $this->assertNull($guard->user());
@@ -434,7 +420,7 @@ class KeycloakGuardTest extends TestCase
         $keycloak->shouldReceive('unserializeToken')->with($accessToken->jsonSerialize())->andReturn($accessToken);
 
         $returnedToken = $guard->token();
-        $this->assertInstanceOf(AccessToken::class, $returnedToken);
+        $this->assertInstanceOf(TokenBag::class, $returnedToken);
         $this->assertEquals($accessToken->jsonSerialize(), $returnedToken->jsonSerialize());
     }
 

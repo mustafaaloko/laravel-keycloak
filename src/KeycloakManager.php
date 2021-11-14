@@ -2,7 +2,7 @@
 
 namespace Aloko\Keycloak;
 
-use Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException;
+use Aloko\Keycloak\Exceptions\FetchTokenFailedException;
 use Aloko\Keycloak\Token\JWTParser;
 use Aloko\Keycloak\Token\Token;
 use Aloko\Keycloak\Token\TokenBag;
@@ -34,7 +34,7 @@ class KeycloakManager
     }
 
     /**
-     * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
+     * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      */
     public function fetchToken($code): TokenBag
     {
@@ -45,12 +45,12 @@ class KeycloakManager
 
             return $this->tokenManager->createBag($token);
         } catch (IdentityProviderException $e) {
-            throw new FetchAccessTokenFailedException('Fetching access token failed: ' . $e->getMessage());
+            throw new FetchTokenFailedException('Fetching access token failed: ' . $e->getMessage());
         }
     }
 
     /**
-     * @throws \Aloko\Keycloak\Exceptions\FetchAccessTokenFailedException
+     * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      */
     public function refreshToken(TokenBag $oldTokenBag): TokenBag
     {
@@ -61,7 +61,7 @@ class KeycloakManager
 
             return $this->tokenManager->createBag($newToken);
         } catch (IdentityProviderException $e) {
-            throw new FetchAccessTokenFailedException('Fetching refresh token failed: ' . $e->getMessage());
+            throw new FetchTokenFailedException('Fetching refresh token failed: ' . $e->getMessage());
         }
     }
 
@@ -77,9 +77,9 @@ class KeycloakManager
     /**
      * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException
      */
-    public function verifyTokenSignature(Token $token)
+    public function verifyTokenSignature(TokenBag $tokenBag)
     {
-        $this->tokenManager->verifySignature($token->encoded());
+        $this->tokenManager->verifySignature($tokenBag->accessToken()->encoded());
     }
 
     public function unserializeToken(array $token): TokenBag
