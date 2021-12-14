@@ -60,12 +60,17 @@ class KeycloakServiceProvider extends ServiceProvider
         return Configuration::forAsymmetricSigner(
             new Sha256(),
             InMemory::plainText(''),
-            InMemory::plainText($this->keycloakConfig('realm_public_key'))
+            InMemory::plainText($this->realmPublicKey())
         );
     }
 
     protected function keycloakConfig($key = null)
     {
         return config(is_null($key) ? 'keycloak' : 'keycloak.'.$key);
+    }
+
+    protected function realmPublicKey(): string
+    {
+        return "-----BEGIN PUBLIC KEY-----\n" . wordwrap($this->keycloakConfig('realm_public_key'), 64, "\n", true) . "\n-----END PUBLIC KEY-----";
     }
 }
