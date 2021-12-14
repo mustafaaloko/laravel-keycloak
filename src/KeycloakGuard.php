@@ -114,7 +114,6 @@ class KeycloakGuard implements Guard
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      * @throws \Aloko\Keycloak\Exceptions\RelatedUserNotFoundException
      * @throws \Aloko\Keycloak\Exceptions\TokenSignatureVerificationFailedException
-     * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      */
     public function user(): ?Authenticatable
     {
@@ -170,9 +169,7 @@ class KeycloakGuard implements Guard
      */
     public function prepare(array $options = []): self
     {
-        $this->authUrl = $this->keycloak->getAuthorizationUrl(
-            array_merge(['scope' => ['openid', 'profile', 'email']], $options) // TODO: Bring this to Provider class
-        );
+        $this->authUrl = $this->keycloak->getAuthorizationUrl($options);
 
         $this->session->put('oauth2state', $this->keycloak->getState());
         $this->session->save();
@@ -234,7 +231,7 @@ class KeycloakGuard implements Guard
         try {
             return $this->keycloak->refreshToken($token);
         } catch (FetchTokenFailedException $e) {
-            $this->getLogger()->error('Attempt to refresh token failed', ['exception' => $e]);
+            $this->logger()->error('Attempt to refresh token failed', ['exception' => $e]);
             return null;
         }
     }

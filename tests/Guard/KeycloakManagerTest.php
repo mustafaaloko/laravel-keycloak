@@ -11,17 +11,9 @@ use PHPUnit\Framework\TestCase;
 use Stevenmaguire\OAuth2\Client\Provider\Keycloak;
 use Mockery as m;
 
-class KeycloakProviderTest extends TestCase
+class KeycloakManagerTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
-
-    public function testItCreatesAKeycloakProviderInstanceFromConfig()
-    {
-        $instance = new KeycloakManager($this->sampleConfig(), m::mock(TokenManager::class));
-
-        $this->assertInstanceOf(KeycloakManager::class, $instance);
-        $this->assertInstanceOf(Keycloak::class, $instance);
-    }
 
     public function testItCanFetchToken()
     {

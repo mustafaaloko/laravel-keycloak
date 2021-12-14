@@ -33,6 +33,18 @@ class KeycloakManager
         $this->tokenManager = $tokenManager;
     }
 
+    public function getAuthorizationUrl(array $options = []): string
+    {
+        return $this->provider->getAuthorizationUrl(
+            array_merge(['scope' => ['openid', 'profile', 'email']], $options)
+        );
+    }
+
+    public function getState(): string
+    {
+        return $this->provider->getState();
+    }
+
     /**
      * @throws \Aloko\Keycloak\Exceptions\FetchTokenFailedException
      */

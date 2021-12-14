@@ -23,6 +23,7 @@ use League\OAuth2\Client\Token\AccessToken;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use Mockery as m;
+use Psr\Log\LoggerInterface;
 
 class KeycloakGuardTest extends TestCase
 {
@@ -225,23 +226,6 @@ class KeycloakGuardTest extends TestCase
         $session->shouldNotHaveReceived('migrate');
     }
 
-    public function testItThrowsFetchTokenFailedExceptionIfBaseProviderThrowsAnyTypeOfException()
-    {
-        [$keycloak, $provider,] = $this->getMocks();
-        $session = m::spy(Session::class);
-        $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
-
-        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
-        $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andThrows(\Exception::class);
-
-        $this->expectException(FetchTokenFailedException::class);
-        $guard->handleCallback();
-
-        $session->shouldNotHaveReceived('put');
-        $session->shouldNotHaveReceived('migrate');
-    }
-
     public function testTokenSignatureFailedExceptionIsRethrown()
     {
         $tokenBag = m::mock(TokenBag::class);
@@ -291,7 +275,7 @@ class KeycloakGuardTest extends TestCase
         $user = m::mock(Authenticatable::class);
         $tokenBag = m::mock(TokenBag::class);
         $tokenBag->shouldReceive('accessToken')->andReturn($accessToken = m::mock(Token::class));
-        $accessToken->shouldReceive('isExpired')->andReturn(false);
+        $tokenBag->shouldReceive('isExpired')->andReturn(false);
         $sessionData = ['id' => 10, 'token' => ['foo' => 'bar']];
         $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
         $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($tokenBag);
@@ -328,8 +312,8 @@ class KeycloakGuardTest extends TestCase
         $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
         $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($tokenBag);
         $keycloak->shouldReceive('verifyTokenSignature')->with($tokenBag)->once();
-        $tokenBag->shouldReceive('accessToken')->andReturn($accessToken = m::mock(Token::class));
-        $accessToken->shouldReceive('isExpired')->andReturn(true);
+        $tokenBag->shouldReceive('accessToken');
+        $tokenBag->shouldReceive('isExpired')->andReturn(true);
         $keycloak->shouldReceive('refreshToken')->with($tokenBag)->andReturn($newTokenBag);
         $newTokenBag->shouldReceive('accessToken')->andReturn($newToken = m::mock(Token::class));
         $newToken->shouldReceive('subject')->andReturn('user-id-10');
@@ -345,21 +329,22 @@ class KeycloakGuardTest extends TestCase
         $this->assertSame($user, $guard->user());
     }
 
-    public function testItSetsUserNullIfRefreshTokenThrowsIdentityException()
+    public function testItSetsUserNullIfRefreshTokenFails()
     {
         [$keycloak, $provider,] = $this->getMocks();
         $session = m::spy(Session::class);
         $request = Request::create('/', 'GET');
-        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request);
-        $user = m::mock(Authenticatable::class);
+        $logger = m::spy(LoggerInterface::class);
+        $guard = new KeycloakGuard('default', $keycloak, $provider, $session, $request, $logger);
         $expiredTokenBag = m::mock(TokenBag::class);
         $expiredTokenBag->shouldReceive('isExpired')->andReturnTrue();
         $sessionData = ['id' => 10, 'token' => ['foo' => 'bar']];
         $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
         $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($expiredTokenBag);
         $keycloak->shouldReceive('verifyTokenSignature')->with($expiredTokenBag)->once();
-        $keycloak->shouldReceive('refreshToken')->with($expiredTokenBag)->andThrows(IdentityProviderException::class);
+        $keycloak->shouldReceive('refreshToken')->with($expiredTokenBag)->andThrows(FetchTokenFailedException::class);
 
+        $logger->shouldReceive('error');
         $session->shouldReceive('remove')->with($guard->getName());
         $this->assertNull($guard->user());
     }
@@ -413,15 +398,12 @@ class KeycloakGuardTest extends TestCase
     {
         [$keycloak, $provider, $session] = $this->getMocks();
         $guard = new KeycloakGuard('default', $keycloak, $provider, $session, Request::create('/', 'GET'));
-        $accessToken = $this->dummyAccessToken();
-        $session->shouldReceive('get')->with($guard->getName())->andReturn(
-            ['id' => 10, 'token' => $accessToken->jsonSerialize()]
-        );
-        $keycloak->shouldReceive('unserializeToken')->with($accessToken->jsonSerialize())->andReturn($accessToken);
+        $tokenBag = m::mock(TokenBag::class);
+        $sessionData = ['id' => 10, 'token' => ['foo' => 'bar']];
+        $session->shouldReceive('get')->with($guard->getName())->andReturn($sessionData);
+        $keycloak->shouldReceive('unserializeToken')->with($sessionData['token'])->andReturn($tokenBag);
 
-        $returnedToken = $guard->token();
-        $this->assertInstanceOf(TokenBag::class, $returnedToken);
-        $this->assertEquals($accessToken->jsonSerialize(), $returnedToken->jsonSerialize());
+        $this->assertSame($tokenBag, $guard->token());
     }
 
     public function testTokenMethodReturnsNullIfSessionIsEmpty()
@@ -462,32 +444,32 @@ class KeycloakGuardTest extends TestCase
         $session->shouldHaveReceived('migrate')->with(true);
         $this->assertSame($user, $guard->user());
     }
-
-    public function testItThrowsExceptionIfTheReturnedTypeOfUserByTokenCallbackIsNotOfTypeAuthenticatable()
-    {
-        $token = $this->dummyAccessToken();
-        $provider = m::spy(UserProvider::class);
-        $session = m::spy(Session::class);
-        $parsedToken = m::spy(UnencryptedToken::class);
-        $user = m::mock(Authenticatable::class);
-        $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
-
-        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
-        $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
-        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
-        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
-        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/An instance of '.preg_quote(Authenticatable::class).' was expected/');
-        $guard->resolveUserByToken(fn() => 123);
-        $guard->handleCallback();
-
-        $provider->shouldNotHaveReceived('retrieveByCredentials');
-        $session->shouldNotHaveReceived('put');
-        $session->shouldNotHaveReceived('migrate');
-        $this->assertNull($guard->user());
-    }
+//
+//    public function testItThrowsExceptionIfTheReturnedTypeOfUserByTokenCallbackIsNotOfTypeAuthenticatable()
+//    {
+//        $token = $this->dummyAccessToken();
+//        $provider = m::spy(UserProvider::class);
+//        $session = m::spy(Session::class);
+//        $parsedToken = m::spy(UnencryptedToken::class);
+//        $user = m::mock(Authenticatable::class);
+//        $request = Request::create('/', 'GET', ['state' => '123', 'code' => 'code-123']);
+//
+//        $guard = new KeycloakGuard('default', $keycloak = m::mock(KeycloakManager::class), $provider, $session, $request);
+//        $session->shouldReceive('get')->with('oauth2state')->once()->andReturn('123');
+//        $keycloak->shouldReceive('fetchToken')->with('code-123')->once()->andReturn($token);
+//        $keycloak->shouldReceive('verifyTokenSignature')->with($token->getToken())->once();
+//        $keycloak->shouldReceive('parseToken')->with($token->getToken())->once()->andReturn($parsedToken);
+//
+//        $this->expectException(\RuntimeException::class);
+//        $this->expectExceptionMessageMatches('/An instance of '.preg_quote(Authenticatable::class).' was expected/');
+//        $guard->resolveUserByToken(fn() => 123);
+//        $guard->handleCallback();
+//
+//        $provider->shouldNotHaveReceived('retrieveByCredentials');
+//        $session->shouldNotHaveReceived('put');
+//        $session->shouldNotHaveReceived('migrate');
+//        $this->assertNull($guard->user());
+//    }
 
     /**
      * @return \Mockery\MockInterface[]
