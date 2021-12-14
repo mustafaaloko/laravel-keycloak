@@ -25,7 +25,7 @@ class KeycloakManager
             'realm' => $config['realm'],
             'clientId' => $config['client_id'],
             'clientSecret' => $config['client_secret'],
-            'redirectUri' => $config['redirect_uri'],
+            'redirectUri' => $this->isUrl($config['redirect_uri']) ? $config['redirect_uri'] : url($config['redirect_uri']),
             'encryptionAlgorithm' => $config['realm_encryption_algo'],
             'encryptionKey' => $config['realm_public_key']
         ]);
@@ -97,5 +97,10 @@ class KeycloakManager
     public function unserializeToken(array $token): TokenBag
     {
         return $this->tokenManager->unserializeToken($token);
+    }
+
+    protected function isUrl(string $string)
+    {
+        return filter_var($string, FILTER_VALIDATE_URL);
     }
 }
