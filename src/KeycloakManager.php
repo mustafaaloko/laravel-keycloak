@@ -81,7 +81,7 @@ class KeycloakManager
     {
         return $this->provider->getLogoutUrl(
             array_merge([
-                'redirect_uri' => Arr::pull($options, 'redirect_uri', '/auth/logout/callback')
+                'redirect_uri' => Arr::pull($options, 'redirect_uri', url('/auth/logout/callback'))
             ], $options)
         );
     }
