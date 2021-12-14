@@ -3,10 +3,10 @@
 namespace Aloko\Keycloak\Http\Middleware;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Str;
 use Illuminate\Routing\Pipeline;
 use Illuminate\Support\Collection;
+use Symfony\Component\HttpFoundation\Response;
 
 class EnsureFrontendRequestsAreStateful
 {
