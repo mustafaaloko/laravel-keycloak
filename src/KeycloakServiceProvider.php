@@ -2,12 +2,12 @@
 
 namespace Aloko\Keycloak;
 
-use Aloko\Keycloak\Token\TokenManager;
-use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Support\ServiceProvider;
 use Lcobucci\JWT\Configuration;
-use Lcobucci\JWT\Signer\Key\InMemory;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
+use Lcobucci\JWT\Signer\Key\InMemory;
+use Aloko\Keycloak\Token\TokenManager;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Contracts\Foundation\Application;
 
 class KeycloakServiceProvider extends ServiceProvider
 {
@@ -59,7 +59,7 @@ class KeycloakServiceProvider extends ServiceProvider
     {
         return Configuration::forAsymmetricSigner(
             new Sha256(),
-            InMemory::plainText(''),
+            InMemory::plainText('unused-private-key'),
             InMemory::plainText($this->realmPublicKey())
         );
     }
