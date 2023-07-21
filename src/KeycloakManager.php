@@ -2,15 +2,15 @@
 
 namespace Aloko\Keycloak;
 
-use Aloko\Keycloak\Exceptions\FetchTokenFailedException;
-use Aloko\Keycloak\Token\JWTParser;
+use Illuminate\Support\Arr;
 use Aloko\Keycloak\Token\Token;
 use Aloko\Keycloak\Token\TokenBag;
+use Aloko\Keycloak\Token\JWTParser;
 use Aloko\Keycloak\Token\TokenManager;
-use Illuminate\Support\Arr;
-use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use League\OAuth2\Client\Token\AccessToken;
 use Stevenmaguire\OAuth2\Client\Provider\Keycloak;
+use Aloko\Keycloak\Exceptions\FetchTokenFailedException;
+use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 
 class KeycloakManager
 {
@@ -27,7 +27,8 @@ class KeycloakManager
             'clientSecret' => $config['client_secret'],
             'redirectUri' => $this->isUrl($config['redirect_uri']) ? $config['redirect_uri'] : url($config['redirect_uri']),
             'encryptionAlgorithm' => $config['realm_encryption_algo'],
-            'encryptionKey' => $config['realm_public_key']
+            'encryptionKey' => $config['realm_public_key'],
+            'version' => $config['version']
         ]);
 
         $this->tokenManager = $tokenManager;
