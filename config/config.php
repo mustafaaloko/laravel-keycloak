@@ -16,7 +16,9 @@ return [
 
     'realm_encryption_algo' => env('KEYCLOAK_REALM_ENCRYPTION_ALGO', 'RS256'),
     
-    'realm_public_key' => env('KEYCLOAL_REALM_PUBLIC_KEY', 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlCGs21LuL26MwYS/QHyEHPrJXJfgRGHvSvtrbJoPqQaDT0/ZhHVcXxePt1hCADvyldBaV+l5lMrK+rnCoycFkLRfBOdz+xlR2pftQN+fGL4bYtxHwEDWIi+tJSJ6X0Z1FTCs0jl/5iZyT21RKBTQsYdfFuc+BmU7li+Y1hfoRo0GFuZqDlghPkgt104sflpEe/HM6M6iqOnNoBQDwETF5nosnM5wXCcQWdTpGSqoPUttQ94pg105UiOAbSVJ0i0avEfekXSh3rNvVwaXZqJdt7LzXfnH8rs3Z8EZlqwpWT/bWFwUrgIL96aM0dyhrE2Ofu6sjmuFiGnbsYW1EP/7awIDAQAB'),
+    'realm_public_key' => env('KEYCLOAK_REALM_PUBLIC_KEY', 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlCGs21LuL26MwYS/QHyEHPrJXJfgRGHvSvtrbJoPqQaDT0/ZhHVcXxePt1hCADvyldBaV+l5lMrK+rnCoycFkLRfBOdz+xlR2pftQN+fGL4bYtxHwEDWIi+tJSJ6X0Z1FTCs0jl/5iZyT21RKBTQsYdfFuc+BmU7li+Y1hfoRo0GFuZqDlghPkgt104sflpEe/HM6M6iqOnNoBQDwETF5nosnM5wXCcQWdTpGSqoPUttQ94pg105UiOAbSVJ0i0avEfekXSh3rNvVwaXZqJdt7LzXfnH8rs3Z8EZlqwpWT/bWFwUrgIL96aM0dyhrE2Ofu6sjmuFiGnbsYW1EP/7awIDAQAB'),
+
+    'version' => env('KEYCLOAK_SERVER_VERSION', '21.1.2'),
 
     'stateful' => explode(',', env('KEYCLOAK_STATEFUL_DOMAINS', sprintf(
         '%s%s',
