@@ -1,5 +1,5 @@
 # ***WORK IN PROGRESS***
-Although fully functional, this package is still not recommended for production use yet. Last few steps are remaining to be completed soon. Thanks!
+Although fully functional, this package is still not recommended for public production use yet. It's for private use for now. Last few touches need to be added. Thanks!
 
 # Laravel Keycloak
 
