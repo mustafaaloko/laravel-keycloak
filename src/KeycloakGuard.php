@@ -59,7 +59,7 @@ class KeycloakGuard implements Guard
      *
      * @var \Psr\Log\LoggerInterface|null
      */
-    protected ?LoggerInterface $logger;
+    protected LoggerInterface $logger;
 
     /**
      * Callback to create users if not found in the system.
@@ -98,7 +98,7 @@ class KeycloakGuard implements Guard
                                 UserProvider $provider,
                                 Session $session,
                                 Request $request,
-                                LoggerInterface $logger = null)
+                                LoggerInterface $logger)
     {
         $this->name = $name;
         $this->keycloak = $keycloak;
@@ -481,7 +481,7 @@ class KeycloakGuard implements Guard
         return $this->provider->retrieveByCredentials(['sub' => $token->subject()]);
     }
 
-    public function logger(): ?LoggerInterface
+    public function logger(): LoggerInterface
     {
         return $this->logger;
     }

@@ -42,7 +42,8 @@ class KeycloakServiceProvider extends ServiceProvider
             new KeycloakManager($this->keycloakConfig(), $this->buildTokenManager()),
             $app['auth']->createUserProvider($config['provider'] ?? null),
             $app['session.store'],
-            $app['request']
+            $app['request'],
+            $app['log']
         );
 
         $guard->setRequest($this->app->refresh('request', $guard, 'setRequest'));
