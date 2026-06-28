@@ -280,10 +280,11 @@ class KeycloakGuard implements Guard
      *
      * @param \Illuminate\Contracts\Auth\Authenticatable $user
      * @param \Aloko\Keycloak\Token\TokenBag             $token
+     * @param bool                                       $migrateSession
      *
      * @return void
      */
-    protected function updateSession(Authenticatable $user, TokenBag $token): void
+    protected function updateSession(Authenticatable $user, TokenBag $token, bool $migrateSession = true): void
     {
         $data = [
             'id' => $user->getAuthIdentifier(),
@@ -291,7 +292,10 @@ class KeycloakGuard implements Guard
         ];
 
         $this->session->put($this->getName(), $data);
-        $this->session->migrate(true);
+
+        if ($migrateSession) {
+            $this->session->migrate(true);
+        }
     }
 
     /**
@@ -446,7 +450,12 @@ class KeycloakGuard implements Guard
         $user = $this->retrieveUserByToken($newTokenBag->accessToken());
 
         return $this->user = tap($user, function ($user) use ($newTokenBag) {
-            $this->login($user, $newTokenBag);
+            // During token refresh, don't regenerate the session ID. Session
+            // migration is only needed on initial login to prevent session
+            // fixation. Migrating here destroys the old session, which breaks
+            // any concurrent requests still using the previous session cookie.
+            $this->updateSession($user, $newTokenBag, migrateSession: false);
+            $this->setUser($user);
         });
     }
 
